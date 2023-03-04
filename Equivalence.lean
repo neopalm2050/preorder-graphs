@@ -222,7 +222,6 @@ namespace UnionFindLinks
       )
     ⟩
   
-
   theorem no_cycles {size : Nat} (uf : UnionFindLinks size) :
     ∀ id steps,
       Nat.repeat uf.parent (steps+1) id = id →
@@ -442,231 +441,170 @@ namespace UnionFindLinks
         exact h
       )
     )
+  
+  def set_to_root_raw {size : Nat} (uf : UnionFindLinks size) :
+    Fin size → uf.roots → FinArray size :=
+    λ set_loc new_root =>
+    uf.val.set set_loc new_root.val
+  
+  def set_to_root_gives_rooted {size : Nat} (uf : UnionFindLinks size)
+    (set_loc : Fin size) (new_root : uf.roots) (id : Fin size) :
+    let new_FinArray := uf.set_to_root_raw set_loc new_root
+    ∃ steps,
+      let r := Nat.repeat new_FinArray.get steps id
+      new_FinArray.get r = r :=
+    
+    let new_FinArray := uf.set_to_root_raw set_loc new_root
+    if hchanged : id = set_loc then
+      let get_eq_new_root : new_FinArray.get set_loc = new_root.val := uf.val.get_set set_loc new_root.val
+      let get_eq_new_root' : new_FinArray.get id = new_root.val := by
+        rw [hchanged.symm] at get_eq_new_root
+        exact get_eq_new_root
+      let get_is_a_root : new_FinArray.get (new_FinArray.get id) = new_FinArray.get id := by
+        rw [get_eq_new_root']
+        exact if h : set_loc = new_root.val then by
+          rw [h] at get_eq_new_root
+          exact get_eq_new_root
+        else by
+          let h' : uf.val.get new_root.val = new_FinArray.get new_root.val := uf.val.get_set_ne set_loc new_root.val new_root.val h
+          rw [h'.symm]
+          exact new_root.property
+      ⟨1, get_is_a_root⟩
+    else
+      let same_get : uf.parent id = new_FinArray.get id := uf.val.get_set_ne set_loc id new_root.val (λ x => hchanged x.symm)
+      if hroot : uf.parent id = id then
+        ⟨0, by rw [same_get] at hroot; exact hroot⟩
+      else
+        --required for termination
+        let _hterm : uf.root_distance (uf.parent id) < uf.root_distance id :=
+          uf.parent_nearer_root id hroot
 
-  def set_root {size : Nat} (uf : UnionFindLinks size) :
+        (uf.set_to_root_gives_rooted set_loc new_root (uf.parent id)).elim (
+          λ steps hsteps =>
+          ⟨steps+1, by rw [same_get] at hsteps; exact hsteps⟩
+        )
+  termination_by set_to_root_gives_rooted uf set_loc new_root id => uf.root_distance id
+
+  def set_to_root {size : Nat} (uf : UnionFindLinks size) :
     Fin size → uf.roots → UnionFindLinks size :=
     λ set_loc new_root =>
-    let new_FinArray := uf.val.set set_loc new_root.val
-    UnionFindLinks.from_rooted new_FinArray (
-      
-      let rec new_FinArray_rooted (id : Fin size) :
-        ∃ steps,
-          let r := Nat.repeat (FinArray.get new_FinArray) steps id
-          new_FinArray.get r = r :=
-        
-        if hchanged : id = set_loc then
-          let get_eq_new_root : new_FinArray.get set_loc = new_root.val := uf.val.get_set set_loc new_root.val
-          let get_eq_new_root' : new_FinArray.get id = new_root.val := by
-            rw [hchanged.symm] at get_eq_new_root
-            exact get_eq_new_root
-          let get_is_a_root : new_FinArray.get (new_FinArray.get id) = new_FinArray.get id := by
-            rw [get_eq_new_root']
-            exact if h : set_loc = new_root.val then by
-              rw [h] at get_eq_new_root
-              exact get_eq_new_root
-            else by
-              let h' : uf.val.get new_root.val = new_FinArray.get new_root.val := uf.val.get_set_ne set_loc new_root.val new_root.val h
-              rw [h'.symm]
-              exact new_root.property
-          ⟨1, get_is_a_root⟩
-        else
-          let same_get : uf.parent id = new_FinArray.get id := uf.val.get_set_ne set_loc id new_root.val (λ x => hchanged x.symm)
-          if hroot : uf.parent id = id then
-            ⟨0, by rw [same_get] at hroot; exact hroot⟩
-          else
-            let hterm : uf.root_distance (uf.parent id) < uf.root_distance id :=
-              uf.parent_nearer_root id hroot
-
-            (new_FinArray_rooted (uf.parent id)).elim (
-              λ steps hsteps =>
-              ⟨steps+1, by rw [same_get] at hsteps; exact hsteps⟩
-            )
-        
-      --termination_by desired id => uf.root_distance id
-      
-      new_FinArray_rooted
-    )
+    let new_FinArray := uf.set_to_root_raw set_loc new_root
+    let is_rooted := uf.set_to_root_gives_rooted set_loc new_root
+    UnionFindLinks.from_rooted new_FinArray is_rooted
   
 
-  -- old and to be changed
-  def find_aux {size : Nat} (uf : UnionFindLinks size) (id : Fin size) (terminator : Nat)
-    (terminator_max : terminator ≤ size)
-    (h : ∃ path : List (Fin size), uf.is_descendency id path ∧ path.length = (size - terminator))
-    : {output : (UnionFindLinks size) × (Fin size) // output.fst = uf ∨ output.snd ≠ id} :=
+  def find_aux {size : Nat} (uf : UnionFindLinks size) (id : Fin size) :
+    Σ (new_uf : UnionFindLinks size),
+      {_root : new_uf.roots //
+      (∀ a, uf.is_root a ↔ new_uf.is_root a)} :=
     if hroot : uf.parent id = id then (
-      ⟨⟨uf, id⟩, Or.inl (Eq.refl _)⟩
+      let uf_equiv_uf : ∀ (a : Fin size), uf.is_root a ↔ uf.is_root a :=
+        λ a => ⟨λ b => b, λ b => b⟩
+      ⟨uf, ⟨id, hroot⟩, uf_equiv_uf⟩
     ) else
-      let parent_output := (
-        
-        let term_ne_zero : terminator ≠ 0 := by
-          intro term_eq_zero
-          rw [term_eq_zero] at h; simp at h
-          exact h.elim ( by
-            intro xs bad_property
-            let idxs_unique := uf.non_repeating_path id xs bad_property.left hroot
-            let idxs_too_big : (id::xs).length > size := by
-              let idxs_size : (id::xs).length = size + 1 := congrArg Nat.succ bad_property.right
-              rw [idxs_size]
-              exact Nat.lt_succ_self size
-            exact pigeonhole_principle idxs_unique idxs_too_big
-          )
-        
-        -- need this for termination
-        have hterm : (terminator - 1) < terminator := Nat.pred_lt term_ne_zero
-        
-        let ex_new_path : (∃ path : List (Fin size),
-          uf.is_descendency (uf.parent id) path ∧
-          path.length = (size - (terminator - 1))) := h.elim ( by
-            intro xs hxs
-            constructor
-            case w =>
-              exact id :: xs
-            case h =>
-              constructor
-              case left =>
-                constructor
-                case left =>
-                  rfl
-                case right =>
-                  exact hxs.left
-              case right =>
-                let idxs_size : (id::xs).length = (size - terminator) + 1 := congrArg Nat.succ hxs.right
-                rw [idxs_size]
-                let term_ge_1 : 1 ≤ terminator := Nat.ge_of_not_lt ( by
-                  intro term_lt_1
-                  let term_le_zero := Nat.le_of_lt_succ term_lt_1
-                  let term_eq_zero := (Nat.le_zero_eq terminator).mp term_le_zero
-                  exact term_ne_zero term_eq_zero
-                )
-                let other_ineq : 1 ≤ size - (terminator - 1) := Nat.ge_of_not_lt ( by
-                  intro thing_lt_1
-                  let thing_le_zero := Nat.le_of_lt_succ thing_lt_1
-                  let thing_eq_zero := (Nat.le_zero_eq _).mp thing_le_zero
-                  let term_sub_1_lt_size := Nat.lt_of_lt_of_le (hterm) terminator_max
-                  let thing_ne_zero := Nat.sub_ne_zero_of_lt term_sub_1_lt_size
-                  exact thing_ne_zero thing_eq_zero
-                )
-                exact (congrArg (λ x => size - x + 1) (Nat.sub_add_cancel term_ge_1).symm ).trans ( by
-                  rw [(Nat.sub_sub _ _ _).symm]
-                  rw [Nat.sub_add_cancel other_ineq]
-                )
-          )
-        
-        --all this work just to prove I'm allowed to do recursion here
-        --even terminator should be erased, so really this is just calling on parent.
-        uf.find_aux
-          (uf.parent id)
-          (terminator-1)
-          (Nat.le_of_lt (Nat.lt_of_lt_of_le (hterm) terminator_max))
-          ex_new_path
-      )
-      
-      let new_uf := parent_output.val.fst
-      let root := parent_output.val.snd
-      let parent_output_property := parent_output.property
-      
-      let out_uf : UnionFindLinks size := (
-        -- no new_FinArray allowed. As soon as out was created,
-        -- it should be thought of as gone, data-wise.
-        let new_no_cycles := new_uf.property
-        let out_FinArray : FinArray size := new_uf.val.set id root
-        let out_no_cycles : ∀ (id : Fin size) (steps : Nat),
-          Nat.repeat (FinArray.get out_FinArray) (steps + 1) id = id →
-          FinArray.get out_FinArray id = id
-        | test_id, 0, is_root => is_root
-        | test_id, steps+1, is_repeat => (
-          if hmodified : id = test_id then 
-            False.elim
-            sorry
-          else by
-            let parent := FinArray.get out_FinArray test_id
-            let is_repeat : Nat.repeat (FinArray.get out_FinArray) (steps + 1) parent = test_id := is_repeat
-            sorry
-        )
+      --termination chacking
+      let _hterm : uf.root_distance (uf.parent id) < uf.root_distance id :=
+        uf.parent_nearer_root id hroot
 
-        ⟨out_FinArray, sorry⟩ --out_no_cycles⟩
-      )
+      let ⟨new_uf, root, old_equiv_new⟩ := uf.find_aux (uf.parent id)
       
-      ⟨⟨out_uf, root⟩, Or.inr sorry⟩
-    --termination_by find_aux uf a steps h => steps
+      let out_uf : UnionFindLinks size :=
+        new_uf.set_to_root id root
+
+      let new_equiv_out : ∀ a, new_uf.is_root a ↔ out_uf.is_root a := by
+        intro a
+        constructor
+        case mp =>
+          intro a_is_new_root
+          let id_ne_a : id ≠ a := by
+            intro id_eq_a
+            rw [id_eq_a] at hroot
+            exact hroot ((old_equiv_new a).mpr a_is_new_root)
+          let parent_unchanged : new_uf.parent a = out_uf.parent a := new_uf.val.get_set_ne id a root.val id_ne_a
+          exact parent_unchanged.symm.trans a_is_new_root
+        case mpr =>
+          intro a_is_out_root
+          by_cases id = a
+          case inl id_eq_a =>
+            let id_is_out_root : out_uf.parent id = id := by
+              rw [id_eq_a]
+              exact a_is_out_root
+            let parent_is_root : out_uf.parent id = root.val := new_uf.val.get_set id root.val
+            let id_eq_root : id = root.val := id_is_out_root.symm.trans parent_is_root
+            rw [id_eq_root] at hroot
+            let root_is_old_root : uf.is_root root.val := (old_equiv_new root.val).mpr root.property
+            let _ := hroot root_is_old_root
+            contradiction
+          case inr id_ne_a =>
+            let parent_unchanged : new_uf.parent a = out_uf.parent a := new_uf.val.get_set_ne id a root.val id_ne_a
+            exact parent_unchanged.trans a_is_out_root
+      
+      let root : out_uf.roots := ⟨root.val, (new_equiv_out root.val).mp root.property⟩
+
+      let old_equiv_out : ∀ a, uf.is_root a ↔ out_uf.is_root a :=
+        λ a => (old_equiv_new a).trans (new_equiv_out a)
+
+      ⟨out_uf, root, old_equiv_out⟩
+  termination_by find_aux uf id => uf.root_distance id
 
   def find {size:Nat} : Fin size → StateM (UnionFindLinks size) (Fin size)
   | id, uf => (
-    
-    sorry
+    let ⟨new_uf, root, _⟩ := uf.find_aux id
+    ⟨root.val, new_uf⟩
   )
-
-
 end UnionFindLinks
 
-/-
-def find_step_limited : (uf : UnionFind) → Fin uf.obs → Nat → Nat
-  | _ , id, (Nat.zero) => id
-  | uf, id, (Nat.succ step_limit) => 
-    let is_id_root := Nat.decEq id (uf.parent id);
-    is_id_root.byCases (
-      -- root case
-      λ _ =>
-      id
-    ) (
-      -- not root case
-      λ _ =>
-      find_step_limited uf (uf.parent id) step_limit
-    )
 
+--while ranks should store the number of children for each root,
+--this isn't really an important invariant or anything, and is only
+--there to help the program run faster, so no stored proof
+--required for lean to accept.
+structure UnionFind (size : Nat) : Type where
+  (links : UnionFindLinks size)
+  (ranks : {xs : Array Nat // xs.size = size})
 
--- sadly, making steps smaller doesn't count as making the
--- (∃ steps : Nat, etc.) smaller because of proof irrelevance
--- Extracting any useability out of the ∃ is difficult.
-def find_internal : (uf : UnionFind) → (id : Fin uf.obs) → 
-  (∃ steps : Nat,
-    let root := Nat.repeat uf.parent steps id;
-    root = uf.parent root) →
-  Nat
-  | uf, id, root_exists => 
-    let is_id_root := Nat.decEq id (uf.parent id);
-    is_id_root.byCases (
-      -- root case
-      λ _ =>
-      id
-    ) (
-      -- not root case
-      λ not_root =>
-      let not_root : ¬Nat.repeat uf.parent 0 id = uf.parent (Nat.repeat uf.parent 0 id) := Fin.ne_of_val_ne not_root
-      let next_id := uf.parent id
-      let next_root_proof : (∃ steps : Nat,
-        let root := Nat.repeat uf.parent steps next_id;
-        root = uf.parent root) := (
-          root_exists.elim (
-            λ steps =>
-            match steps with
-            | 0 => λ is_root => (not_root is_root).elim
-            | steps_pred+1 => λ next_has_closer_root => (
-              Exists.intro steps_pred (
-                next_has_closer_root
-              )
-            )
-          )
-      )
+namespace UnionFind
+  def union {size : Nat} : Fin size → Fin size → StateM (UnionFind size) (Fin size) :=
+    λ id1 id2 uf =>
+    let uf_links := uf.links
+    let ⟨uf_links, root1, _    ⟩ := uf_links.find_aux id1
+    let ⟨uf_links, root2, equiv⟩ := uf_links.find_aux id2
 
-      find_internal uf next_id next_root_proof
-    )
+    let root1 : uf_links.roots := ⟨root1.val, (equiv root1.val).mp root1.property⟩
 
-def find (uf : UnionFind) (id : Fin uf.obs) : Nat :=
-  --let root_exists := uf.has_root id;
-  let is_id_root := Nat.decEq id (uf.parent id);
-  is_id_root.byCases (
-    λ is_root =>
-    id
-  ) (
-    λ not_root =>
-    let not_root : ¬Nat.repeat uf.parent 0 id = uf.parent (Nat.repeat uf.parent 0 id) := Fin.ne_of_val_ne not_root
-    let next_id := uf.parent id
+    let rank1 := uf.ranks.val.get ⟨
+      root1.val,
+      by rw [uf.ranks.property]; exact root1.val.isLt
+    ⟩
 
-    find uf (uf.parent id)
-  )
--/
+    let rank2 := uf.ranks.val.get ⟨
+      root2.val,
+      by rw [uf.ranks.property]; exact root2.val.isLt
+    ⟩
 
+    let ⟨bigroot, smallroot⟩ :=
+      if rank1 < rank2 then
+        (root2, root1)
+      else
+        (root1, root2)
+    
+    let uf_links := uf_links.set_to_root smallroot.val bigroot
+    
+    let bigroot_array_loc : Fin uf.ranks.val.size := ⟨
+      bigroot.val.val,
+      by rw [uf.ranks.property]; exact bigroot.val.isLt
+    ⟩
 
-#check Exists.elim
-#print Nat.repeat.loop
+    let new_ranks := uf.ranks.val.set bigroot_array_loc (rank1 + rank2)
+    let same_size := uf.ranks.val.size_set bigroot_array_loc (rank1 + rank2)
+    let expected_size : new_ranks.size = size := same_size.trans uf.ranks.property
+
+    ⟨bigroot.val, uf_links, new_ranks, expected_size⟩
+  
+  def find {size : Nat} : Fin size → StateM (UnionFind size) (Fin size) :=
+    λ id uf =>
+    let ⟨root, uf_links⟩ := do {
+      UnionFindLinks.find id
+    }.run uf.links
+    ⟨root, uf_links, uf.ranks⟩
+end UnionFind
