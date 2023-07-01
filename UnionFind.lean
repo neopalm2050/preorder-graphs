@@ -1,6 +1,6 @@
 import UniqueList
 
-universe u
+universe u v
 
 namespace Nat
   theorem repeat_assoc {α : Type u} :
@@ -24,6 +24,85 @@ namespace Nat
   | f, m, n+1, a => repeat_add f m n (f a)
 end Nat
 
+namespace Fin
+  def weaken :
+    {m n : Nat} →
+    m ≤ n →
+    (Fin m) →
+    Fin n
+  | _, _, isLe, ⟨x, isLt⟩ => ⟨x, Nat.lt_of_lt_of_le isLt isLe⟩
+
+  theorem weaken_preserves_val :
+    {m n : Nat} →
+    (h : m ≤ n) →
+    (x : Fin m) →
+    (weaken h x).val = x.val
+  | m, n, h, x => by rfl
+end Fin
+
+namespace List
+  theorem concat_length_succ {α : Type u} :
+    (xs : List α) →
+    (elem : α) →
+    (xs.concat elem).length = xs.length + 1
+  | [], _ => by rfl
+  | x::xs, x' => congrArg Nat.succ (concat_length_succ xs x')
+
+  theorem concat_get_last {α : Type u} :
+    (xs : List α) →
+    (elem : α) →
+    (xs.concat elem).get ⟨xs.length, by rw [concat_length_succ xs elem]; exact Nat.lt_succ_self _⟩ = elem
+  | [], _ => by rfl
+  | _::xs, x' => concat_get_last xs x'
+
+  theorem concat_get_other {α : Type u} :
+    (xs : List α) →
+    (elem : α) →
+    (n : Fin xs.length) →
+      let n_weakened : Fin (xs.length + 1) := (Fin.weaken (Nat.le.step Nat.le.refl) n)
+      let n_concat_fin : Fin ((xs.concat elem).length) := ⟨n, by rw [xs.concat_length_succ elem]; exact n_weakened.isLt⟩
+    (xs.concat elem).get n_concat_fin = xs.get n
+  | [], _, fin0 => Fin.elim0 fin0
+  | x::xs, elem, ⟨0, _⟩ => by rfl
+  | _::xs, elem, ⟨n+1, sn_lt_slxs⟩ => concat_get_other xs elem ⟨n, Nat.lt_of_succ_lt_succ sn_lt_slxs⟩
+
+  theorem map_get {α : Type u} {β : Type v} :
+    (f : α → β) →
+    (xs : List α) →
+    (n : Fin xs.length) →
+    (List.map f xs).get ⟨n.val, by rw [xs.length_map f]; exact n.isLt⟩ = f (xs.get n)
+  | _, [], fin0 => Fin.elim0 fin0
+  | f, x::xs, ⟨0, isLt⟩ => by rfl
+  | f, _::xs, ⟨n+1, isLt⟩ => map_get f xs ⟨n, Nat.lt_of_succ_lt_succ isLt⟩
+end List
+
+namespace Array
+  theorem push_get_last {α : Type u} :
+    (xs : Array α) →
+    (elem : α) →
+    (xs.push elem).get ⟨xs.size, by rw [xs.size_push elem]; exact Nat.lt_succ_self xs.size⟩ = elem
+  | ⟨xs⟩, x' => List.concat_get_last xs x'
+
+  theorem push_get_other {α : Type u} :
+    (xs : Array α) →
+    (elem : α) →
+    (n : Fin xs.size) →
+      let n_weakened : Fin (xs.size + 1) := (Fin.weaken (Nat.le.step Nat.le.refl) n)
+      let n_push_fin : Fin ((xs.push elem).size) := ⟨n, by rw [xs.size_push elem]; exact n_weakened.isLt⟩
+    (xs.push elem).get n_push_fin = xs.get n
+  | ⟨xs⟩, x', n => List.concat_get_other xs x' n
+end Array
+
+#print Array.map
+#print Array.mapM
+#print Array.foldlM
+#print Array.size
+#print Array.foldlM.loop
+#print Array.push
+#print List.concat
+#print List.map
+
+
 def FinArray (size : Nat) :=
   {xs : Array (Fin size) // xs.size = size}
 
@@ -46,6 +125,70 @@ namespace FinArray
       ) new,
       (array.val.size_set _ _).trans array.property
     ⟩
+  
+  def expand {size : Nat} (array : FinArray size) (elem : Fin (size+1)) : FinArray (size+1) :=
+    
+    let h : size ≤ size + 1 := Nat.le.step Nat.le.refl
+    let array_weaker : Array (Fin (size + 1)) :=
+      ⟨List.map (Fin.weaken h) array.val.data⟩
+    
+    let array_out := array_weaker.push elem
+    
+    ⟨array_out, by
+      rw [array_weaker.size_push elem]
+      apply congrArg Nat.succ
+      exact (array.val.data.length_map (Fin.weaken h)).trans array.property⟩
+  
+  theorem expand_get_last {size : Nat} (array : FinArray size) (elem : Fin (size+1)) :
+    (array.expand elem).get ⟨size, Nat.lt_succ_self size⟩ = elem :=
+    
+    let h : size ≤ size + 1 := Nat.le.step Nat.le.refl
+    let array_weaker : Array (Fin (size + 1)) :=
+      ⟨List.map (Fin.weaken h) array.val.data⟩
+
+    let g : size < (array_weaker.push elem).size := by
+      rw [Array.size_push]
+      let h'' : Array.size array_weaker = size := (List.length_map array.val.data (Fin.weaken h)).trans array.property
+      rw [h'']
+      exact Nat.lt_succ_self size
+
+    let h' : (array_weaker.push elem).get ⟨size, g⟩ = elem := by
+      let g' := array_weaker.push_get_last elem
+      let g''' : Array.size array_weaker < Array.size (Array.push array_weaker elem) := by rw [(array_weaker.size_push elem)]; exact Nat.lt_succ_self _
+      let g'' : Fin.mk (Array.size array_weaker) g''' = Fin.mk size g := Fin.eq_of_val_eq ((List.length_map array.val.data (Fin.weaken h)).trans array.property)
+      rw [g''] at g'
+      exact g'
+
+    h'
+  
+  theorem expand_get_other {size : Nat} (array : FinArray size) (elem : Fin (size+1)) :
+    (index : Fin size) →
+    let weak_index := Fin.weaken (Nat.le.step Nat.le.refl) index
+    ((array.expand elem).get weak_index).val = (array.get index).val
+  | index =>
+    let h : size ≤ size + 1 := Nat.le.step Nat.le.refl
+    let array_weaker : Array (Fin (size + 1)) :=
+      ⟨List.map (Fin.weaken h) array.val.data⟩
+    
+    
+    let idx := index.val
+    
+    let idx_lt_size : idx < size := index.isLt
+    let idx_lt_array_size : idx < array.val.size := by rw [array.property]; exact idx_lt_size
+    let idx_lt_weaker_size : idx < array_weaker.size := Nat.lt_of_lt_of_eq idx_lt_array_size (array.val.data.length_map (Fin.weaken h)).symm
+    let idx_lt_pushed_weaker_size : idx < (array_weaker.push elem).size := by rw [array_weaker.size_push elem]; exact Nat.le.step idx_lt_weaker_size
+
+    let array_weaker_same_number : (array_weaker.get ⟨idx, idx_lt_weaker_size⟩) = Fin.weaken h (array.get index) :=
+      List.map_get (Fin.weaken h) array.val.data ⟨idx, idx_lt_array_size⟩
+    
+    let j : (array_weaker.push elem).get ⟨idx, idx_lt_pushed_weaker_size⟩ = array_weaker.get ⟨idx, idx_lt_weaker_size⟩ := array_weaker.push_get_other elem ⟨idx, idx_lt_weaker_size⟩
+
+    let k : (Fin.weaken h (array.get index)).val = (array.get index).val := Fin.weaken_preserves_val h (array.get index)
+
+    let h' : ((array_weaker.push elem).get ⟨idx, idx_lt_pushed_weaker_size⟩).val = (array.get index).val :=
+      (Fin.val_eq_of_eq (j.trans array_weaker_same_number)).trans k
+    
+    h'
 
   theorem get_set {size : Nat} :
     ∀ array : FinArray size,
@@ -94,8 +237,14 @@ def UnionFindLinks (size : Nat) :=
 
 namespace UnionFindLinks
 
+  def empty : UnionFindLinks 0 :=
+    ⟨⟨⟨[]⟩, by rfl⟩, λ fin0 => Fin.elim0 fin0⟩
+
   def parent {size : Nat} (uf : UnionFindLinks size) (id : Fin size) : Fin size :=
     uf.val.get id
+
+  def is_ancestor {size : Nat} (uf : UnionFindLinks size) (id : Fin size) (ancestor : Fin size) : Prop :=
+    ∃ n : Nat, Nat.repeat uf.parent n id = ancestor
 
   def is_root {size : Nat} (uf : UnionFindLinks size) (id : Fin size) : Prop :=
     uf.parent id = id
@@ -115,6 +264,22 @@ namespace UnionFindLinks
   | final, (x::xs) => (
     uf.parent x = final ∧ uf.is_descendency x xs
   )
+
+  def get_ancestry {size : Nat} (uf : UnionFindLinks size) :
+    (id : Fin size) →
+    (n : Nat) →
+    {path : Fin size × List (Fin size) // uf.is_descendency path.fst path.snd ∧ path.fst = Nat.repeat uf.parent n id ∧ path.snd.length = n}
+  | id, 0 => ⟨⟨id, []⟩, trivial, by rfl, by rfl⟩
+  | id, n+1 =>
+    let ⟨⟨lower_top, lower_path⟩, lower_is_desc, lower_top_val, lower_size⟩ := uf.get_ancestry id n
+    let new_path := lower_top :: lower_path
+    let new_top := uf.parent lower_top
+    let new_is_desc : uf.is_descendency new_top new_path := ⟨by rfl, lower_is_desc⟩
+    let new_top_val : new_top = Nat.repeat uf.parent n (uf.parent id) := by
+      simp
+      rw [Nat.repeat_assoc, lower_top_val.symm]
+    let new_size : new_path.length = (n+1) := congrArg Nat.succ lower_size
+    ⟨⟨new_top, new_path⟩, new_is_desc, new_top_val, new_size⟩
 
   theorem root_ancestor_root {size : Nat} (uf : UnionFindLinks size) :
     ∀ id steps, uf.is_root id → uf.is_root (Nat.repeat uf.parent steps id) := by
@@ -274,6 +439,59 @@ namespace UnionFindLinks
         )
       )
 
+  
+
+  def expand {size : Nat} (uf : UnionFindLinks size) : UnionFindLinks (size+1) :=
+    let new_elem : Fin (size + 1) := ⟨size, Nat.lt_succ_self size⟩
+    let new_FinArray := uf.val.expand new_elem
+    UnionFindLinks.from_rooted new_FinArray (
+      λ id =>
+      if hlast : id.val = size then by
+        constructor
+        case w => exact 0
+        case h =>
+          let h : new_FinArray.get new_elem = new_elem := uf.val.expand_get_last new_elem
+          let g : new_elem = id := Fin.eq_of_val_eq hlast.symm
+          rw [g] at h
+          exact h
+      else
+        let same_get : ∀ id : Fin size, (new_FinArray.get (Fin.weaken (Nat.le.step Nat.le.refl) id)).val = (uf.parent id).val :=
+          λ id =>
+          uf.val.expand_get_other new_elem id
+        let rec same_get_repeat : ∀ id n, (Nat.repeat new_FinArray.get n (Fin.weaken (Nat.le.step Nat.le.refl) id)).val = (Nat.repeat uf.parent n id).val
+        | id, 0 => by rfl
+        | id, n+1 => by
+          let a : (Nat.repeat new_FinArray.get n (Fin.weaken (Nat.le.step Nat.le.refl) (uf.parent id))).val = (Nat.repeat uf.parent (n+1) id).val := same_get_repeat (uf.parent id) n
+          let b : Fin.weaken (Nat.le.step Nat.le.refl) (uf.parent id) = new_FinArray.get (Fin.weaken (Nat.le.step Nat.le.refl) id) := by
+            apply Fin.eq_of_val_eq
+            rw [Fin.weaken_preserves_val]
+            exact (same_get id).symm
+          rw [b] at a
+          exact a
+        let constrained_id : Fin size := ⟨id.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ id.isLt) hlast⟩
+        (uf.rooted constrained_id).elim ( by
+          intro steps old_uf_rooted_in_steps
+          constructor
+          case w => exact steps
+          case h =>
+            let r := Nat.repeat new_FinArray.get steps id
+            let s := Nat.repeat uf.parent steps constrained_id
+            let h : r.val = s.val := same_get_repeat constrained_id steps
+            let s_is_root : uf.parent s = s := old_uf_rooted_in_steps
+            let r_eq_s_parent : r.val = (uf.parent s).val := h.trans (Fin.val_eq_of_eq s_is_root).symm
+            let h' : (new_FinArray.get r).val = (uf.parent s).val := by
+              rw [(Nat.repeat_assoc new_FinArray.get steps id).symm]
+              rw [(Nat.repeat_assoc uf.parent steps constrained_id).symm]
+              exact same_get_repeat constrained_id (steps+1)
+            let r_eq_r_parent : new_FinArray.get r = r := by
+              apply Fin.eq_of_val_eq
+              exact h'.trans r_eq_s_parent.symm
+            exact r_eq_r_parent
+        )
+    )
+  
+  
+  --not used
   /-
   def from_no_cycles {size : Nat} :
     (parent_array : FinArray size) →
@@ -281,8 +499,18 @@ namespace UnionFindLinks
       Nat.repeat parent_array.get (steps+1) id = id →
       parent_array.get id = id) →
     UnionFindLinks size
-  | parent_array, no_cycles => ⟨parent_array, sorry⟩
+  | parent_array, no_cycles => from_rooted parent_array (by
+    intro id
+    constructor
+    case w => exact size
+    case h =>
+      --basically, make a list that gets the parent size times
+      --pigeonhole principle says there's a repeat
+      --that means there's a root, therefore it's all root from there onwards
+      sorry
+  )
   -/
+  
 
   theorem path_containing_ancestor_end_ends_repeat {size : Nat} (uf : UnionFindLinks size) :
     ∀ id final path, uf.is_descendency final path → path.prop_contains id →
@@ -354,6 +582,8 @@ namespace UnionFindLinks
       let parent := uf.parent id
       let next_n := n-1
 
+      --if n is zero, that means we've fained to find the parent size times.
+      --that leaves us with more nodes on the path to root than can exist.
       let n_ne_zero : n ≠ 0 := desc_ex.elim (
         λ desc ⟨h_desc, h_length⟩ =>
 
@@ -491,6 +721,294 @@ namespace UnionFindLinks
     let is_rooted := uf.set_to_root_gives_rooted set_loc new_root
     UnionFindLinks.from_rooted new_FinArray is_rooted
   
+  --simple, but inefficient. Good for proofs.
+  --"silent" in that it doesn't spit out a modified unionfind.
+  def silent_find {size : Nat} (uf : UnionFindLinks size) :
+    Fin size → uf.roots := λ id =>
+    if hroot : uf.parent id = id then
+      ⟨id, hroot⟩
+    else
+      let _hterm : uf.root_distance (uf.parent id) < uf.root_distance id :=
+        uf.parent_nearer_root id hroot
+      uf.silent_find (uf.parent id)
+  termination_by silent_find id => uf.root_distance id
+
+
+  theorem root_ancestors_equal {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (id r1 r2 : Fin size),
+    uf.is_root r1 → uf.is_root r2 →
+    uf.is_ancestor id r1 → uf.is_ancestor id r2 →
+    r1 = r2
+  | id, r1, r2, r1_is_root, r2_is_root, r1_anc_id, r2_anc_id =>
+    if hid : uf.parent id = id then
+      let all_ancestors_same : ∀ n, Nat.repeat uf.parent n id = id := by
+        intro n
+        induction n
+        case zero => rfl
+        case succ n hind =>
+          show Nat.repeat uf.parent n (uf.parent id) = id
+          rw [hid]; exact hind
+      let r1_eq_id : r1 = id := r1_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
+      let r2_eq_id : r2 = id := r2_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
+      r1_eq_id.trans r2_eq_id.symm
+    else
+      let r1_anc_parent : uf.is_ancestor (uf.parent id) r1 := r1_anc_id.elim (by
+        intro n; cases n
+        case zero =>
+          intro id_eq_r1; let id_eq_r1 : id = r1 := id_eq_r1
+          rw [id_eq_r1.symm] at r1_is_root
+          contradiction
+        case succ n =>
+          intro h; exact ⟨n, h⟩
+      )
+      let r2_anc_parent : uf.is_ancestor (uf.parent id) r2 := r2_anc_id.elim (by
+        intro n; cases n
+        case zero =>
+          intro id_eq_r2; let id_eq_r2 : id = r2 := id_eq_r2
+          rw [id_eq_r2.symm] at r2_is_root
+          contradiction
+        case succ n =>
+          intro h; exact ⟨n, h⟩
+      )
+      let _terminator := uf.parent_nearer_root id hid
+      uf.root_ancestors_equal (uf.parent id) r1 r2 r1_is_root r2_is_root r1_anc_parent r2_anc_parent
+    termination_by root_ancestors_equal _ _ id _ _ _ _ _ _ => uf.root_distance id
+
+  
+  def equivalent_to {size : Nat} (uf uf' : UnionFindLinks size) : Prop :=
+    ∀ a : Fin size, uf.is_root a →
+      uf'.is_root a ∧
+      ∀ b : Fin size, uf.is_ancestor b a → uf'.is_ancestor b a
+  
+  theorem equivalent_reflexive {size : Nat} (uf : UnionFindLinks size) : uf.equivalent_to uf :=
+    λ _ hroot => ⟨hroot, λ _ is_anc => is_anc⟩
+  
+  theorem equivalent_symmetric {size : Nat} (uf uf' : UnionFindLinks size) :
+    uf.equivalent_to uf' → uf'.equivalent_to uf :=
+    λ uf_equiv_uf' r is_root' =>
+    let is_root : uf.is_root r :=
+      (uf.rooted r).elim ( by
+        intro n
+        let true_root := Nat.repeat uf.parent n r
+        intro true_root_is_root; let true_root_is_root : uf.parent true_root = true_root := true_root_is_root
+        let true_root_anc_r : uf.is_ancestor r true_root := ⟨n, by rfl⟩
+        let true_root_anc'_r : uf'.is_ancestor r true_root := (uf_equiv_uf' true_root true_root_is_root).right r true_root_anc_r
+        
+        let r_eq_true_root_sufficient : r = true_root → uf.is_root r := by
+          intro r_eq_true_root
+          rw [r_eq_true_root.symm] at true_root_is_root
+          exact true_root_is_root
+        apply r_eq_true_root_sufficient
+        apply true_root_anc'_r.elim
+        intro n; induction n;
+        case zero =>
+          intro r_eq_true_root
+          exact r_eq_true_root
+        case succ n hind =>
+          intro true_root_in_sn_steps; let true_root_in_sn_steps : Nat.repeat uf'.parent n (uf'.parent r) = true_root := true_root_in_sn_steps
+          apply hind
+          rw [is_root'] at true_root_in_sn_steps
+          exact true_root_in_sn_steps
+      )
+    
+    ⟨is_root, (
+      λ id r_anc'_id => (uf.rooted id).elim ( by
+        intro n
+        let root := Nat.repeat uf.parent n id
+        intro hroot; let hroot : uf.is_root root := hroot
+        let hroot' : uf'.is_root root := (uf_equiv_uf' root hroot).left
+        let root_anc_id : uf.is_ancestor id root := ⟨n, by rfl⟩
+        let root_anc'_id : uf'.is_ancestor id root := (uf_equiv_uf' root hroot).right id root_anc_id
+        let root_eq_r : root = r := uf'.root_ancestors_equal id root r hroot' is_root' root_anc'_id r_anc'_id
+        rw [root_eq_r] at root_anc_id
+        exact root_anc_id
+      )
+    )⟩
+  
+  theorem equivalent_transitive {size : Nat} (uf uf' uf'' : UnionFindLinks size) :
+    uf.equivalent_to uf' → uf'.equivalent_to uf'' → uf.equivalent_to uf'' :=
+    λ uf_equiv_uf' uf'_equiv_uf'' r is_root =>
+    let is_root' := (uf_equiv_uf' r is_root).left
+    ⟨
+      (uf'_equiv_uf'' r is_root').left
+    ,
+      λ id r_anc_id => (uf'_equiv_uf'' r is_root').right id $ (uf_equiv_uf' r is_root).right id r_anc_id
+    ⟩
+
+
+  theorem contract_keeps_roots {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (id : Fin size) (root : uf.roots),
+    uf.is_ancestor id root.val →
+    ∀ r, uf.is_root r → (uf.set_to_root id root).is_root r :=
+    λ id root root_ancestor_of_id =>
+    λ r hroot =>
+    if hid : id = r then
+    let h : (uf.val.set id root.val).get r = r := by
+      rw [hid.symm, uf.val.get_set id root.val]
+      apply root_ancestor_of_id.elim
+      intro a
+      induction a
+      case zero =>
+        exact Eq.symm
+      case succ a hind =>
+        intro root_in_steps
+        let root_in_steps : Nat.repeat uf.parent a (uf.parent id) = root.val := root_in_steps
+        let id_is_root : uf.parent r = r := hroot
+        let id_is_root : uf.parent id = id := by rw [hid.symm] at id_is_root; exact id_is_root
+        rw [id_is_root] at root_in_steps
+        exact hind root_in_steps
+    h
+  else
+    let g := uf.val.get_set_ne id r root.val hid
+    let h : (uf.val.set id root.val).get r = r := by
+      let hroot : uf.val.get r = r := hroot
+      rw [hroot] at g
+      exact g.symm
+    h
+
+  theorem contract_preserves_ancestry {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (id : Fin size) (root : uf.roots),
+    uf.is_ancestor id root.val →
+    ∀ r, uf.is_root r →
+    ∀ a : Fin size, uf.is_ancestor a r → (uf.set_to_root id root).is_ancestor a r :=
+    λ id root root_ancestor_of_id =>
+    λ r hroot =>
+    λ a r_ancestor_of_a =>
+    if hid : id = a then
+
+      let new_parent_is_root : (uf.val.set id root.val).get a = root.val := by
+        rw [hid]
+        exact uf.val.get_set a root.val
+      
+      
+      let r_must_be_root : root.val = r := by
+        rw [hid.symm] at r_ancestor_of_a
+        exact uf.root_ancestors_equal id root.val r root.property hroot root_ancestor_of_id r_ancestor_of_a
+
+      ⟨1, new_parent_is_root.trans r_must_be_root⟩
+    else
+    
+    let same_lookup : (uf.set_to_root id root).parent a = uf.parent a :=
+      (uf.val.get_set_ne id a root.val hid).symm
+    if hbasecase : uf.parent a = a then
+      ⟨0, r_ancestor_of_a.elim (by
+        intro n
+        induction n
+        case zero =>
+          intro h; exact h
+        case succ n hind =>
+          intro sn_steps
+          let sn_steps : Nat.repeat uf.parent n (uf.parent a) = r := sn_steps
+          rw [hbasecase] at sn_steps
+          exact hind sn_steps
+      )⟩
+    
+    else
+      let r_ancestor_of_parent : uf.is_ancestor (uf.parent a) r := r_ancestor_of_a.elim (
+        by
+        intro n
+        cases n
+        case zero =>
+          intro a_eq_r
+          let a_eq_r : a = r := a_eq_r
+          rw [a_eq_r] at hbasecase
+          contradiction
+        case succ n =>
+          intro h
+          exact ⟨n, h⟩
+      )
+      
+      let _terminator := uf.parent_nearer_root a hbasecase
+      let parents_agree := uf.contract_preserves_ancestry id root root_ancestor_of_id r hroot (uf.parent a) r_ancestor_of_parent
+      parents_agree.elim (
+        λ n n_steps_from_parent => 
+
+        let h : Nat.repeat (uf.set_to_root id root).parent n ((uf.set_to_root id root).parent a) = r := by
+          rw [same_lookup]
+          exact n_steps_from_parent
+
+        ⟨n+1, h⟩
+      )
+  termination_by contract_preserves_ancestry _ _ _ _ _ _ _ a _ => uf.root_distance a
+
+  theorem contract_equivalence {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (id : Fin size) (root : uf.roots),
+    uf.is_ancestor id root.val →
+    uf.equivalent_to (uf.set_to_root id root) :=
+    λ id root root_ancestor_of_id =>
+    λ r hroot =>
+    ⟨
+      uf.contract_keeps_roots id root root_ancestor_of_id r hroot
+    , 
+      uf.contract_preserves_ancestry id root root_ancestor_of_id r hroot
+    ⟩
+  
+  theorem unite_keeps_ancestors {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (old_root : Fin size) (new_root : uf.roots),
+    uf.is_root old_root →
+    ∀ id anc : Fin size,
+    uf.is_ancestor id anc →
+    (uf.set_to_root old_root new_root).is_ancestor id anc
+  | old_root, new_root, old_is_root, id, anc, anc_of_id =>
+    if hmodified : old_root = id then
+      let id_eq_anc : id = anc := anc_of_id.elim (by
+        intro n; induction n
+        case zero => intro id_eq_anc; exact id_eq_anc
+        case succ n hind =>
+          intro sn_steps; let sn_steps : Nat.repeat uf.parent n (uf.parent id) = anc := sn_steps
+          let id_is_root : uf.parent id = id := by rw [hmodified] at old_is_root; exact old_is_root
+          rw [id_is_root] at sn_steps
+          exact hind sn_steps
+      )
+      ⟨0, id_eq_anc⟩
+    else if hidroot : uf.parent id = id then
+      let id_eq_anc : id = anc := anc_of_id.elim ( by
+        intro n; induction n
+        case zero =>
+          intro id_eq_anc; exact id_eq_anc
+        case succ n hind =>
+          intro sn_steps; let sn_steps : Nat.repeat uf.parent n (uf.parent id) = anc := sn_steps
+          apply hind
+          rw [hidroot] at sn_steps
+          exact sn_steps
+      )
+      ⟨0, id_eq_anc⟩
+    else if hid_anc : id = anc then
+      ⟨0, hid_anc⟩
+    else
+      let same_parent : uf.parent id = (set_to_root uf old_root new_root).parent id := uf.val.get_set_ne old_root id new_root.val hmodified
+      let anc_of_parent : uf.is_ancestor (uf.parent id) anc := anc_of_id.elim ( by
+        intro n; cases n
+        case zero =>
+          intro id_eq_anc; contradiction
+        case succ n =>
+          intro sn_steps
+          exact ⟨n, sn_steps⟩
+      )
+      let _terminator := uf.parent_nearer_root id hidroot
+      (uf.unite_keeps_ancestors old_root new_root old_is_root (uf.parent id) anc anc_of_parent).elim ( by
+        intro n n_steps
+        rw [same_parent] at n_steps
+        exact ⟨n+1, n_steps⟩
+      )
+  termination_by unite_keeps_ancestors _ _ _ _ _ id _ _ => uf.root_distance id
+
+  theorem unite_keeps_untargetted_roots {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (old_root : Fin size) (new_root : uf.roots),
+    uf.is_root old_root →
+    ∀ r : Fin size,
+    uf.is_root r → r ≠ old_root →
+    (uf.set_to_root old_root new_root).is_root r
+  | old_root, new_root, _, r, r_is_root, r_ne_old_root =>
+    let old_root_ne_r : old_root ≠ r := λ h => r_ne_old_root h.symm
+    (uf.val.get_set_ne old_root r new_root.val old_root_ne_r).symm.trans r_is_root
+
+  theorem unite_sets_targetted_root {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (old_root : Fin size) (new_root : uf.roots),
+    uf.is_root old_root →
+    (uf.set_to_root old_root new_root).parent old_root = new_root.val
+  | old_root, new_root, _ =>
+    uf.val.get_set old_root new_root.val
 
   def find_aux {size : Nat} (uf : UnionFindLinks size) (id : Fin size) :
     Σ (new_uf : UnionFindLinks size),
@@ -501,7 +1019,7 @@ namespace UnionFindLinks
         λ a => ⟨λ b => b, λ b => b⟩
       ⟨uf, ⟨id, hroot⟩, uf_equiv_uf⟩
     ) else
-      --termination chacking
+      --termination checking
       let _hterm : uf.root_distance (uf.parent id) < uf.root_distance id :=
         uf.parent_nearer_root id hroot
 
@@ -563,6 +1081,11 @@ structure UnionFind (size : Nat) : Type where
   (ranks : {xs : Array Nat // xs.size = size})
 
 namespace UnionFind
+  def empty : UnionFind 0 := ⟨UnionFindLinks.empty, ⟨⟨[]⟩, by rfl⟩⟩
+
+  def expand {size : Nat} : UnionFind size → UnionFind (size + 1)
+  | ⟨links, ⟨ranks, ranks_size⟩⟩ => ⟨links.expand, ⟨ranks.push 1, by rw [ranks_size.symm]; exact ranks.size_push 1⟩⟩
+
   def union {size : Nat} : Fin size → Fin size → StateM (UnionFind size) (Fin size) :=
     λ id1 id2 uf =>
     let uf_links := uf.links
@@ -571,39 +1094,42 @@ namespace UnionFind
 
     let root1 : uf_links.roots := ⟨root1.val, (equiv root1.val).mp root1.property⟩
 
-    let rank1 := uf.ranks.val.get ⟨
-      root1.val,
-      by rw [uf.ranks.property]; exact root1.val.isLt
-    ⟩
+    if root1.val = root2.val then
+      ⟨root1.val, uf_links, uf.ranks⟩
+    else
+      let rank1 := uf.ranks.val.get ⟨
+        root1.val,
+        by rw [uf.ranks.property]; exact root1.val.isLt
+      ⟩
 
-    let rank2 := uf.ranks.val.get ⟨
-      root2.val,
-      by rw [uf.ranks.property]; exact root2.val.isLt
-    ⟩
+      let rank2 := uf.ranks.val.get ⟨
+        root2.val,
+        by rw [uf.ranks.property]; exact root2.val.isLt
+      ⟩
 
-    let ⟨bigroot, smallroot⟩ :=
-      if rank1 < rank2 then
-        (root2, root1)
-      else
-        (root1, root2)
+      let ⟨bigroot, smallroot⟩ :=
+        if rank1 < rank2 then
+          (root2, root1)
+        else
+          (root1, root2)
+      
+      let uf_links := uf_links.set_to_root smallroot.val bigroot
+      
+      let bigroot_array_loc : Fin uf.ranks.val.size := ⟨
+        bigroot.val.val,
+        by rw [uf.ranks.property]; exact bigroot.val.isLt
+      ⟩
+
+      let new_ranks := uf.ranks.val.set bigroot_array_loc (rank1 + rank2)
+      let same_size := uf.ranks.val.size_set bigroot_array_loc (rank1 + rank2)
+      let expected_size : new_ranks.size = size := same_size.trans uf.ranks.property
+
+      ⟨bigroot.val, uf_links, new_ranks, expected_size⟩
     
-    let uf_links := uf_links.set_to_root smallroot.val bigroot
-    
-    let bigroot_array_loc : Fin uf.ranks.val.size := ⟨
-      bigroot.val.val,
-      by rw [uf.ranks.property]; exact bigroot.val.isLt
-    ⟩
-
-    let new_ranks := uf.ranks.val.set bigroot_array_loc (rank1 + rank2)
-    let same_size := uf.ranks.val.size_set bigroot_array_loc (rank1 + rank2)
-    let expected_size : new_ranks.size = size := same_size.trans uf.ranks.property
-
-    ⟨bigroot.val, uf_links, new_ranks, expected_size⟩
-  
-  def find {size : Nat} : Fin size → StateM (UnionFind size) (Fin size) :=
-    λ id uf =>
-    let ⟨root, uf_links⟩ := do {
-      UnionFindLinks.find id
-    }.run uf.links
-    ⟨root, uf_links, uf.ranks⟩
+    def find {size : Nat} : Fin size → StateM (UnionFind size) (Fin size) :=
+      λ id uf =>
+      let ⟨root, uf_links⟩ := do {
+        UnionFindLinks.find id
+      }.run uf.links
+      ⟨root, uf_links, uf.ranks⟩
 end UnionFind
