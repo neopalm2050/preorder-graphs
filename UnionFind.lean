@@ -22,7 +22,6 @@ namespace Nat
     Nat.repeat f m (Nat.repeat f n a) = Nat.repeat f (m + n) a
   | f, m, 0, a => by rfl
   | f, m, n+1, a => repeat_add f m n (f a)
-
 end Nat
 
 def FinArray (size : Nat) :=

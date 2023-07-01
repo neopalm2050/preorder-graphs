@@ -11,7 +11,7 @@ lean_lib Preorder {
 
 lean_lib UniqueList {}
 
---lean_lib UnionFind {}
+lean_lib UnionFind {}
 
 @[defaultTarget]
 lean_exe preorder {
