@@ -32,6 +32,92 @@ def biweaken_map {n : Nat} :
 | [] => []
 | ⟨⟨i, i_lt_n⟩ , ⟨j, j_lt_n⟩⟩ :: xs => ⟨⟨i, Nat.le.step i_lt_n⟩ , ⟨j, Nat.le.step j_lt_n⟩⟩ :: biweaken_map xs
 
+theorem biweaken_map_doesn't_connect_max {n : Nat} :
+  ∀ xs : List (Fin n × Fin n),
+  ∀ a : Fin (n+1),
+  ¬(biweaken_map xs).prop_contains ⟨a, ⟨n, Nat.lt.base n⟩⟩
+  ∧
+  ¬(biweaken_map xs).prop_contains ⟨⟨n, Nat.lt.base n⟩, a⟩
+| [], _ => ⟨λ h => h, λ h => h⟩
+| ⟨i,j⟩ :: tail, a =>
+  ⟨ by
+    intro mapxs_contains_an
+    cases mapxs_contains_an
+    case inl ij_eq_an =>
+      let j_eq_n : j = n := Fin.val_eq_of_eq $ congrArg Prod.snd ij_eq_an
+      let n_lt_n := j.isLt; rw [j_eq_n] at n_lt_n
+      exact Nat.ne_of_lt n_lt_n (by rfl)
+    case inr an_in_tail =>
+      exact (biweaken_map_doesn't_connect_max tail a).left an_in_tail
+  , by
+    intro mapxs_contains_na
+    cases mapxs_contains_na
+    case inl ij_eq_na =>
+      let i_eq_n : i = n := Fin.val_eq_of_eq $ congrArg Prod.fst ij_eq_na
+      let n_lt_n := i.isLt; rw [i_eq_n] at n_lt_n
+      exact Nat.ne_of_lt n_lt_n (by rfl)
+    case inr na_in_tail =>
+      exact (biweaken_map_doesn't_connect_max tail a).right na_in_tail
+  ⟩
+
+theorem equivalent_implies_nearby_exact {n : Nat} (unionList : List (Fin n × Fin n)) :
+  ∀ i j,
+  equivalence_of unionList i j →
+  i = j ∨ (
+    (∃ x, unionList.prop_contains ⟨i, x⟩ ∨ unionList.prop_contains ⟨x, i⟩)
+    ∧
+    (∃ y, unionList.prop_contains ⟨j, y⟩ ∨ unionList.prop_contains ⟨y, j⟩)
+  )
+| i, j, i_equiv_j => by
+  induction i_equiv_j
+  case refl i j i_eq_j =>
+    exact Or.inl i_eq_j
+  case symm i j j_equiv_i hind =>
+    cases hind
+    case inl i_eq_j =>
+      exact Or.inl i_eq_j.symm
+    case inr conjunction =>
+      cases conjunction
+      case intro exists_x exists_y =>
+      exact Or.inr ⟨exists_y, exists_x⟩
+  case trans i a j i_equiv_a a_equiv_j hind_ia hind_aj =>
+    cases hind_ia
+    case inl i_eq_a =>
+      rw [i_eq_a]; exact hind_aj
+    case inr exists_x =>
+    apply Or.inr
+    cases hind_aj
+    case inl a_eq_j =>
+      rw [a_eq_j] at exists_x
+      exact exists_x
+    case inr exists_y =>
+      constructor
+      case left =>
+        exact exists_x.left
+      case right =>
+        exact exists_y.right
+  case exact i j ij_in_unionList =>
+    exact Or.inr ⟨⟨j, Or.inl ij_in_unionList⟩, ⟨i, Or.inr ij_in_unionList⟩⟩
+
+
+def not_equivalent_to_new {n : Nat} (unionList : List (Fin n × Fin n)) :
+  (a : Fin n) →
+  ¬equivalence_of (biweaken_map unionList) ⟨a.val, Nat.lt.step a.isLt⟩ ⟨n, Nat.lt.base n⟩
+| a, a_equiv_n => by
+  cases equivalent_implies_nearby_exact (biweaken_map unionList) ⟨a.val, Nat.lt.step a.isLt⟩ ⟨n, Nat.lt.base n⟩ a_equiv_n
+  case inl a_eq'_n =>
+    let a_eq_n : a.val = n := Fin.val_eq_of_eq a_eq'_n
+    let a_ne_n := Nat.ne_of_lt a.isLt
+    contradiction
+  case inr conj =>
+    apply conj.right.elim; intro x n_connected_x
+    cases n_connected_x
+    case inl nx_in_unionList =>
+      exact (biweaken_map_doesn't_connect_max unionList x).right nx_in_unionList
+    case inr xn_in_unionList =>
+      exact (biweaken_map_doesn't_connect_max unionList x).left xn_in_unionList
+
+
 def still_equivalent_post_weaken {n : Nat} (unionList : List (Fin n × Fin n)) :
   (a b : Fin n) →
   equivalence_of unionList a b →
@@ -62,41 +148,56 @@ def still_equivalent_post_weaken {n : Nat} (unionList : List (Fin n × Fin n)) :
       case inr ab_in_tail =>
         exact Or.inr $ hind ab_in_tail
 
-mutual
-  def not_equivalent_to_new_aux1 {n : Nat} (unionList : List (Fin n × Fin n)) :
-    (a : Fin n) →
-    (n' : Nat) →
-    n' = n →
-    (n'_lt : n' < n+1) →
-    (unionList' : List (Fin (n+1) × Fin (n+1))) →
-    unionList' = biweaken_map unionList →
-    ¬equivalence_of unionList' ⟨a.val, Nat.le.step a.isLt⟩ ⟨n', n'_lt⟩
-  | ⟨a, a_lt_n⟩, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.refl a_eq_n' => sorry
-  | a, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.symm n'_equiv_a => 
-    not_equivalent_to_new_aux2 unionList a n' n'_eq_n n'_lt unionList' unionList'_val n'_equiv_a
-  | a, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.trans a_equiv_x x_equiv_n' => sorry
-  | a, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.exact an'_in_unionList => sorry
+def still_equivalent_pre_weaken {n : Nat} (unionList : List (Fin n × Fin n)) :
+  (a b : Fin (n+1)) →
+  (a_not_last : a.val ≠ n) →
+  (b_not_last : b.val ≠ n) →
+  equivalence_of (biweaken_map unionList) a b →
+  let a_s : Fin n := ⟨a.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ a.isLt) a_not_last⟩
+  let b_s : Fin n := ⟨b.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ b.isLt) b_not_last⟩
+  equivalence_of unionList a_s b_s
   
-  def not_equivalent_to_new_aux2 {n : Nat} (unionList : List (Fin n × Fin n)) :
-    (a : Fin n) →
-    (n' : Nat) →
-    n' = n →
-    (n'_lt : n' < n+1) →
-    (unionList' : List (Fin (n+1) × Fin (n+1))) →
-    unionList' = biweaken_map unionList →
-    ¬equivalence_of unionList' ⟨n', n'_lt⟩ ⟨a.val, Nat.le.step a.isLt⟩
-  | ⟨a, a_lt_n⟩, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.refl n'_eq_a => sorry
-  | a, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.symm a_equiv_n' =>
-    not_equivalent_to_new_aux1 unionList a n' n'_eq_n n'_lt unionList' unionList'_val a_equiv_n'
-  | a, n', n'_eq_n, n'_lt, unionList', unionList'_val, @equivalence_of.trans _ _ _ x _ n'_equiv_x x_equiv_a =>
-    if hxn : x = n then
-      not_equivalent_to_new_aux2 unionList a x hxn sorry unionList' unionList'_val x_equiv_a
-    else
-      sorry
-  | ⟨a, a_lt_n⟩, n', n'_eq_n, n'_lt, unionList', unionList'_val, equivalence_of.exact n'a_in_unionList => sorry
+| a, b, a_not_last, b_not_last, a_equiv_b => by
+  induction a_equiv_b
+  case refl a b a_eq_b =>
+    let aval_eq_bval := Fin.val_eq_of_eq a_eq_b
+    exact equivalence_of.refl $ Fin.eq_of_val_eq $ aval_eq_bval
+  case symm b a _b_equiv'_a hind_ab =>
+    let b_equiv_a := hind_ab b_not_last a_not_last
+    exact equivalence_of.symm b_equiv_a
+  case trans a x b a_equiv'_x _x_equiv'_b hind_ax hind_xb =>
+    let a_s : Fin n := ⟨a.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ a.isLt) a_not_last⟩
+    let x_not_last : x.val ≠ n := by
+      intro x_eq_n
+      apply not_equivalent_to_new unionList a_s
+      let new : Fin (n+1) := ⟨n, Nat.lt.base n⟩
+      show equivalence_of (biweaken_map unionList) a new
+      let x_eq_new : x = new := Fin.eq_of_val_eq x_eq_n
+      rw [x_eq_new.symm]
+      exact a_equiv'_x
+    let a_equiv_x := hind_ax a_not_last x_not_last
+    let x_equiv_b := hind_xb x_not_last b_not_last
+    exact equivalence_of.trans a_equiv_x x_equiv_b
+  case exact a b ab_in_unionList' =>
+    apply equivalence_of.exact
+    induction unionList
+    case a.nil =>
+      contradiction
+    case a.cons head tail hind =>
+      cases ab_in_unionList'
+      case inl head_eq_ab =>
+        apply Or.inl
+        let fst_eq_a : head.1.val = a.val := Fin.val_eq_of_eq $ congrArg Prod.fst head_eq_ab
+        let snd_eq_b : head.2.val = b.val := Fin.val_eq_of_eq $ congrArg Prod.snd head_eq_ab
+        let a_s : Fin n := ⟨a.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ a.isLt) a_not_last⟩
+        let b_s : Fin n := ⟨b.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ b.isLt) b_not_last⟩
+        show (⟨head.1, head.2⟩ : Fin n × Fin n) = ⟨a_s, b_s⟩
+        let fst_eq_a_s : head.1  = a_s := Fin.eq_of_val_eq fst_eq_a
+        let snd_eq_b_s : head.2 = b_s := Fin.eq_of_val_eq snd_eq_b
+        rw [fst_eq_a_s, snd_eq_b_s]
+      case inr ab_in_tail =>
+        exact Or.inr $ hind ab_in_tail
 
-
-end
 
 
 --reads "a model [model] with query function [query] is a [unionList]-[EquivStructure] precisely when..."
@@ -218,15 +319,20 @@ namespace UnionFindLinks
 
   theorem query_doesn't_modify {size : Nat} (uf : UnionFindLinks size) :
     {unionList : List (Fin size × Fin size)} →
-    (is_equivstruct : EquivStructure uf query unionList) →
     (i j : Fin size) →
+    EquivStructure uf query unionList ↔
     EquivStructure (uf.post_query_reclaim i j) query unionList
-  | unionList, is_eqst, i, j => by
+  | unionList, i, j => by
     let post_find_i_uf := (uf.find_aux i).fst
     let final_uf := (post_find_i_uf.find_aux j).fst
-    show EquivStructure final_uf query unionList
     let uf_equiv_final : uf.equivalent_to final_uf := equivalent_transitive (uf.find_aux i).snd.property.right (post_find_i_uf.find_aux j).snd.property.right
-    exact equivalent_implies_same_equivstruct uf final_uf uf_equiv_final is_eqst
+    constructor
+    case mp =>
+      intro is_eqst
+      exact equivalent_implies_same_equivstruct uf final_uf uf_equiv_final is_eqst
+    case mpr =>
+      intro final_is_eqst
+      exact equivalent_implies_same_equivstruct final_uf uf (equivalent_symmetric uf_equiv_final) final_is_eqst
 
   def unite_aux {size : Nat} (uf : UnionFindLinks size) :
     (i j : Fin size) →
@@ -539,5 +645,131 @@ namespace UnionFindLinks
             let r_anc'_a : uf'.is_ancestor a r := root_ancestry_preserved a r r_is_root r_anc_a
             let r_anc'_b : uf'.is_ancestor b r := root_ancestry_preserved b r r_is_root r_anc_b
             exact ⟨r, r_is_root', r_anc'_a, r_anc'_b⟩
+
+
+  theorem empty_is_equivstruct :
+    EquivStructure empty query []
+  | i, _ => Fin.elim0 i
+
+  theorem expand_preserves_equivstruct {size : Nat} (uf : UnionFindLinks size) :
+    {unionList : List (Fin size × Fin size)} →
+    EquivStructure uf query unionList →
+    EquivStructure uf.expand query (biweaken_map unionList)
+  | unionList, is_eqst, i, j =>
+    let new : Fin (size + 1) := ⟨size, Nat.lt.base size⟩
+    let new_is_root : uf.expand.is_root new := uf.expand_last_root
+    if hi : i.val = size then if hj : j.val = size then by
+      let hi : i = new := Fin.eq_of_val_eq hi
+      let hj : j = new := Fin.eq_of_val_eq hj
+      rw [hi, hj]
+      constructor
+      case mp =>
+        intro
+        exact equivalence_of.refl (by rfl)
+      case mpr =>
+        intro
+        apply (uf.expand.query_true_iff_same_root new new).mpr
+        constructor
+        case w =>
+          exact new
+        case h =>
+          let new_anc_self : uf.expand.is_ancestor new new := ⟨0, by rfl⟩
+          exact ⟨new_is_root, new_anc_self, new_anc_self⟩
+    else by
+      let i_eq_new : i = new := Fin.eq_of_val_eq hi
+      constructor
+      case mp =>
+        intro query_true
+        apply ((uf.expand.query_true_iff_same_root i j).mp query_true).elim
+        intro r ⟨r_is_root, r_anc_i, r_anc_j⟩
+        let r_eq_new : r = new := uf.expand.root_ancestors_equal i r new r_is_root new_is_root r_anc_i ⟨0, Fin.eq_of_val_eq hi⟩
+        let new_anc_j := r_anc_j
+        rw [r_eq_new] at new_anc_j
+        let impossible := uf.expand_last_nanc_old j hj new_anc_j
+        contradiction
+      case mpr =>
+        intro i_equiv_j
+        let j_equiv_new : equivalence_of (biweaken_map unionList) j new := by
+          rw [i_eq_new] at i_equiv_j
+          exact i_equiv_j.symm
+        let strengthened_j : Fin size := ⟨j.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ j.isLt) hj⟩
+        let impossible := not_equivalent_to_new unionList strengthened_j j_equiv_new
+        contradiction
+    else if hj : j.val = size then by
+      let j_eq_new : j = new := Fin.eq_of_val_eq hj
+      constructor
+      case mp =>
+        intro query_true
+        apply ((uf.expand.query_true_iff_same_root i j).mp query_true).elim
+        intro r ⟨r_is_root, r_anc_i, r_anc_j⟩
+        let r_eq_new : r = new := uf.expand.root_ancestors_equal j r new r_is_root new_is_root r_anc_j ⟨0, Fin.eq_of_val_eq hj⟩
+        let new_anc_i := r_anc_i
+        rw [r_eq_new] at new_anc_i
+        let impossible := uf.expand_last_nanc_old i hi new_anc_i
+        contradiction
+      case mpr =>
+        intro i_equiv_j
+        let i_equiv_new : equivalence_of (biweaken_map unionList) i new := by
+          rw [j_eq_new] at i_equiv_j
+          exact i_equiv_j
+        let strengthened_i : Fin size := ⟨i.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ i.isLt) hi⟩
+        let impossible := not_equivalent_to_new unionList strengthened_i i_equiv_new
+        contradiction
+    else by
+      let i_s : Fin size := ⟨i.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ i.isLt) hi⟩
+      let j_s : Fin size := ⟨j.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ j.isLt) hj⟩
+      constructor
+      case mp =>
+        intro query'_true
+        apply ((uf.expand.query_true_iff_same_root i j).mp query'_true).elim
+        intro r ⟨r_is_root', r_anc'_i, r_anc'_j⟩
+        let r_ne_size : r.val ≠ size := by
+          intro r_eq_size
+          let r_eq_new : r = new := Fin.eq_of_val_eq r_eq_size
+          rw [r_eq_new] at r_anc'_i
+          exact uf.expand_last_nanc_old i hi r_anc'_i
+        let r_s : Fin size := ⟨r.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ r.isLt) r_ne_size⟩
+        apply still_equivalent_post_weaken unionList i_s j_s
+        apply (is_eqst i_s j_s).mp
+        apply (uf.query_true_iff_same_root i_s j_s).mpr
+        constructor
+        case w =>
+          exact r_s
+        case h =>
+        constructor
+        case left =>
+          let h : (uf.expand.parent r).val = (uf.parent r_s).val := Fin.val_eq_of_eq $ uf.expand_preserves_parent r_s
+          let h' : (uf.expand.parent r).val = r_s.val := Fin.val_eq_of_eq r_is_root'
+          rw [h] at h'
+          exact Fin.eq_of_val_eq h'
+        case right =>
+        constructor
+        case left =>
+          exact (uf.expand_preserves_ancestry i_s r_s).mpr r_anc'_i
+        case right =>
+          exact (uf.expand_preserves_ancestry j_s r_s).mpr r_anc'_j
+      case mpr =>
+        intro i_equiv'_j
+        apply (uf.expand.query_true_iff_same_root i j).mpr
+        let i_s_equiv_j_s : equivalence_of unionList i_s j_s := still_equivalent_pre_weaken unionList i j hi hj i_equiv'_j
+        let query_true := (is_eqst i_s j_s).mpr i_s_equiv_j_s
+        apply ((uf.query_true_iff_same_root i_s j_s).mp query_true).elim
+        intro r ⟨r_is_root, r_anc_is, r_anc_js⟩
+        let r_w : Fin (size+1) := ⟨r.val, Nat.lt.step r.isLt⟩
+        constructor
+        case w =>
+          exact r_w
+        case h =>
+        constructor
+        case left =>
+          let h : (uf.expand.parent r_w).val = (uf.parent r).val := Fin.val_eq_of_eq $ uf.expand_preserves_parent r
+          rw [r_is_root] at h
+          exact Fin.eq_of_val_eq h
+        case right =>
+        constructor
+        case left =>
+          exact (uf.expand_preserves_ancestry i_s r).mp r_anc_is
+        case right =>
+          exact (uf.expand_preserves_ancestry j_s r).mp r_anc_js
 
 end UnionFindLinks

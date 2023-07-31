@@ -540,7 +540,7 @@ namespace UnionFindLinks
       let parent := uf.parent id
       let next_n := n-1
 
-      --if n is zero, that means we've fained to find the parent size times.
+      --if n is zero, that means we've failed to find the parent size times.
       --that leaves us with more nodes on the path to root than can exist.
       let n_ne_zero : n ≠ 0 := desc_ex.elim (
         λ desc ⟨h_desc, h_length⟩ =>
@@ -629,6 +629,45 @@ namespace UnionFindLinks
       )
     )
   
+  theorem root_ancestors_equal {size : Nat} (uf : UnionFindLinks size) :
+    ∀ (id r1 r2 : Fin size),
+    uf.is_root r1 → uf.is_root r2 →
+    uf.is_ancestor id r1 → uf.is_ancestor id r2 →
+    r1 = r2
+  | id, r1, r2, r1_is_root, r2_is_root, r1_anc_id, r2_anc_id =>
+    if hid : uf.parent id = id then
+      let all_ancestors_same : ∀ n, Nat.repeat uf.parent n id = id := by
+        intro n
+        induction n
+        case zero => rfl
+        case succ n hind =>
+          show Nat.repeat uf.parent n (uf.parent id) = id
+          rw [hid]; exact hind
+      let r1_eq_id : r1 = id := r1_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
+      let r2_eq_id : r2 = id := r2_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
+      r1_eq_id.trans r2_eq_id.symm
+    else
+      let r1_anc_parent : uf.is_ancestor (uf.parent id) r1 := r1_anc_id.elim (by
+        intro n; cases n
+        case zero =>
+          intro id_eq_r1; let id_eq_r1 : id = r1 := id_eq_r1
+          rw [id_eq_r1.symm] at r1_is_root
+          contradiction
+        case succ n =>
+          intro h; exact ⟨n, h⟩
+      )
+      let r2_anc_parent : uf.is_ancestor (uf.parent id) r2 := r2_anc_id.elim (by
+        intro n; cases n
+        case zero =>
+          intro id_eq_r2; let id_eq_r2 : id = r2 := id_eq_r2
+          rw [id_eq_r2.symm] at r2_is_root
+          contradiction
+        case succ n =>
+          intro h; exact ⟨n, h⟩
+      )
+      let _terminator := uf.parent_nearer_root id hid
+      uf.root_ancestors_equal (uf.parent id) r1 r2 r1_is_root r2_is_root r1_anc_parent r2_anc_parent
+    termination_by root_ancestors_equal _ _ id _ _ _ _ _ _ => uf.root_distance id
   
 
   def expand {size : Nat} (uf : UnionFindLinks size) : UnionFindLinks (size+1) :=
@@ -690,9 +729,9 @@ namespace UnionFindLinks
   
   theorem expand_preserves_ancestry {size : Nat} (uf : UnionFindLinks size) :
     ∀ id anc : Fin size,
-    uf.is_ancestor id anc →
-    uf.expand.is_ancestor ⟨id.val, Nat.le.step id.isLt⟩ ⟨anc.val, Nat.le.step anc.isLt⟩
-  | id, anc, hanc =>
+    uf.is_ancestor id anc ↔
+    uf.expand.is_ancestor ⟨id.val, Nat.lt.step id.isLt⟩ ⟨anc.val, Nat.lt.step anc.isLt⟩
+  | id, anc =>
     let weaken : Fin size → Fin (size + 1) := Fin.weaken (Nat.le.step Nat.le.refl)
     let repeat_parent_equal : ∀ n : Nat, Nat.repeat uf.expand.parent n (weaken id) = weaken (Nat.repeat uf.parent n id) := by
       intro n; induction n
@@ -704,13 +743,58 @@ namespace UnionFindLinks
         rw [Nat.repeat_assoc uf.parent n id]
         rw [hind]
         exact uf.expand_preserves_parent $ Nat.repeat uf.parent n id
-    hanc.elim ( by
-      intro n h
-      rw [h.symm]
-      show uf.expand.is_ancestor (weaken id) (weaken (Nat.repeat uf.parent n id))
-      exact ⟨n, repeat_parent_equal n⟩
-    )
+    ⟨
+      λ hanc =>
+      hanc.elim ( by
+        intro n h
+        rw [h.symm]
+        show uf.expand.is_ancestor (weaken id) (weaken (Nat.repeat uf.parent n id))
+        exact ⟨n, repeat_parent_equal n⟩
+      )
+    ,
+      λ hancout =>
+      hancout.elim ( by
+        intro n h
+        let h : Nat.repeat uf.expand.parent n (weaken id) = Fin.weaken (Nat.le.step Nat.le.refl) anc := h
+        let h' := repeat_parent_equal n
+        rw [h] at h'
+        let h' := Fin.val_eq_of_eq h'
+        let h' : anc.val = (Nat.repeat (parent uf) n id).val := h'
+        exact ⟨n, Fin.eq_of_val_eq h'.symm⟩
+      )
+    ⟩
 
+  theorem expand_last_nanc_old {size : Nat} (uf : UnionFindLinks size) :
+    ∀ id : Fin (size+1),
+    id.val ≠ size →
+    ¬uf.expand.is_ancestor id ⟨size, Nat.lt.base size⟩
+  | id, id_ne_last, last_anc_id =>
+    if hroot : uf.expand.parent id = id then
+      let id_anc_self : uf.expand.is_ancestor id id := ⟨0, by rfl⟩
+      let id_eq_last := uf.expand.root_ancestors_equal id id ⟨size, Nat.lt.base size⟩ hroot (uf.expand_last_root) id_anc_self last_anc_id
+      id_ne_last $ Fin.val_eq_of_eq id_eq_last
+    else
+      let _terminator := uf.expand.parent_nearer_root id hroot
+      let parent_ne_last : (uf.expand.parent id).val ≠ size := by
+        intro parent_eq_last
+        let strengthened_id : Fin size := ⟨id.val, Nat.lt_of_le_of_ne (Nat.le_of_lt_succ id.isLt) id_ne_last⟩
+        let parent_eq_strengthened_parent : uf.expand.parent id = Fin.weaken (Nat.le.step Nat.le.refl) (uf.parent strengthened_id) := uf.expand_preserves_parent strengthened_id
+        let parent_eq_strengthened_parent : (uf.expand.parent id).val = (uf.parent strengthened_id).val := Fin.val_eq_of_eq parent_eq_strengthened_parent
+        let parent_lt_last := (uf.parent strengthened_id).isLt
+        rw [parent_eq_strengthened_parent.symm] at parent_lt_last
+        let parent_ne_last := Nat.ne_of_lt parent_lt_last
+        contradiction
+      let last_anc_parent : uf.expand.is_ancestor (uf.expand.parent id) ⟨size, Nat.lt.base size⟩ := by
+        apply last_anc_id.elim; intro n
+        cases n
+        case zero =>
+          intro id_eq_last; let id_eq_last : id.val = size := Fin.val_eq_of_eq id_eq_last
+          contradiction
+        case succ n =>
+          intro sn_steps
+          exact ⟨n, sn_steps⟩
+      uf.expand_last_nanc_old (uf.expand.parent id) parent_ne_last last_anc_parent
+  termination_by expand_last_nanc_old uf _ id _ _ => uf.expand.root_distance id
 
   def set_to_root_raw {size : Nat} (uf : UnionFindLinks size) :
     Fin size → uf.roots → FinArray size :=
@@ -764,6 +848,8 @@ namespace UnionFindLinks
   
   --simple, but inefficient. Good for proofs.
   --"silent" in that it doesn't spit out a modified unionfind.
+  --unused. There's not actually any reason to ever find silently.
+  --if finding proofs, then there's no reason to stop considering the old unionfind.
   def silent_find {size : Nat} (uf : UnionFindLinks size) :
     Fin size → uf.roots := λ id =>
     if hroot : uf.parent id = id then
@@ -775,47 +861,6 @@ namespace UnionFindLinks
   termination_by silent_find id => uf.root_distance id
 
 
-  theorem root_ancestors_equal {size : Nat} (uf : UnionFindLinks size) :
-    ∀ (id r1 r2 : Fin size),
-    uf.is_root r1 → uf.is_root r2 →
-    uf.is_ancestor id r1 → uf.is_ancestor id r2 →
-    r1 = r2
-  | id, r1, r2, r1_is_root, r2_is_root, r1_anc_id, r2_anc_id =>
-    if hid : uf.parent id = id then
-      let all_ancestors_same : ∀ n, Nat.repeat uf.parent n id = id := by
-        intro n
-        induction n
-        case zero => rfl
-        case succ n hind =>
-          show Nat.repeat uf.parent n (uf.parent id) = id
-          rw [hid]; exact hind
-      let r1_eq_id : r1 = id := r1_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
-      let r2_eq_id : r2 = id := r2_anc_id.elim λ n h => h.symm.trans $ all_ancestors_same n
-      r1_eq_id.trans r2_eq_id.symm
-    else
-      let r1_anc_parent : uf.is_ancestor (uf.parent id) r1 := r1_anc_id.elim (by
-        intro n; cases n
-        case zero =>
-          intro id_eq_r1; let id_eq_r1 : id = r1 := id_eq_r1
-          rw [id_eq_r1.symm] at r1_is_root
-          contradiction
-        case succ n =>
-          intro h; exact ⟨n, h⟩
-      )
-      let r2_anc_parent : uf.is_ancestor (uf.parent id) r2 := r2_anc_id.elim (by
-        intro n; cases n
-        case zero =>
-          intro id_eq_r2; let id_eq_r2 : id = r2 := id_eq_r2
-          rw [id_eq_r2.symm] at r2_is_root
-          contradiction
-        case succ n =>
-          intro h; exact ⟨n, h⟩
-      )
-      let _terminator := uf.parent_nearer_root id hid
-      uf.root_ancestors_equal (uf.parent id) r1 r2 r1_is_root r2_is_root r1_anc_parent r2_anc_parent
-    termination_by root_ancestors_equal _ _ id _ _ _ _ _ _ => uf.root_distance id
-
-  
   def equivalent_to {size : Nat} (uf uf' : UnionFindLinks size) : Prop :=
     ∀ {a : Fin size}, uf.is_root a →
       uf'.is_root a ∧
@@ -945,8 +990,7 @@ namespace UnionFindLinks
       )⟩
     
     else
-      let r_ancestor_of_parent : uf.is_ancestor (uf.parent a) r := r_ancestor_of_a.elim (
-        by
+      let r_ancestor_of_parent : uf.is_ancestor (uf.parent a) r := r_ancestor_of_a.elim ( by
         intro n
         cases n
         case zero =>
