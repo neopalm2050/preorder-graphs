@@ -1297,7 +1297,9 @@ namespace UnionFind
 
       let ⟨bigroot, smallroot, larger_rank⟩ :=
         if rank1 < rank2 then
-          (root2, root1, rank2 + 1)
+          (root2, root1, rank2)
+        else if rank2 < rank1 then
+          (root1, root2, rank1)
         else
           (root1, root2, rank1 + 1)
       
