@@ -1260,7 +1260,7 @@ namespace UnionFindLinks
 end UnionFindLinks
 
 
---while ranks should store the number of children for each root,
+--while ranks should store something like the height of each root,
 --this isn't really an important invariant or anything, and is only
 --there to help the program run faster, so no stored proof
 --required for lean to accept.
@@ -1295,11 +1295,11 @@ namespace UnionFind
         by rw [uf.ranks.property]; exact root2.val.isLt
       ⟩
 
-      let ⟨bigroot, smallroot⟩ :=
+      let ⟨bigroot, smallroot, larger_rank⟩ :=
         if rank1 < rank2 then
-          (root2, root1)
+          (root2, root1, rank2 + 1)
         else
-          (root1, root2)
+          (root1, root2, rank1 + 1)
       
       let uf_links := uf_links.set_to_root smallroot.val bigroot
       
@@ -1308,8 +1308,8 @@ namespace UnionFind
         by rw [uf.ranks.property]; exact bigroot.val.isLt
       ⟩
 
-      let new_ranks := uf.ranks.val.set bigroot_array_loc (rank1 + rank2)
-      let same_size := uf.ranks.val.size_set bigroot_array_loc (rank1 + rank2)
+      let new_ranks := uf.ranks.val.set bigroot_array_loc larger_rank
+      let same_size := uf.ranks.val.size_set bigroot_array_loc larger_rank
       let expected_size : new_ranks.size = size := same_size.trans uf.ranks.property
 
       ⟨bigroot.val, uf_links, new_ranks, expected_size⟩
